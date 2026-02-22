@@ -24,10 +24,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run Bandit SAST
-        uses: docker://cytopia/bandit:latest
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          args: -r . -f json -o bandit-report.json || true
+          python-version: '3.11'
+      - name: Install Bandit
+        run: pip install bandit
+      - name: Run Bandit SAST
+        run: bandit -r . -f json -o bandit-report.json --exit-zero
       - name: Upload SAST results
         uses: actions/upload-artifact@v4
         with:
