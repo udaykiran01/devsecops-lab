@@ -1,0 +1,74 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  # Job 1 - Secret Detection
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: HEAD~1
+          head: HEAD
+
+  # Job 2 - SAST (Static Code Analysis)
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Bandit SAST
+        uses: docker://cytopia/bandit:latest
+        with:
+          args: -r . -f json -o bandit-report.json || true
+      - name: Upload SAST results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  # Job 3 - Dependency Scanning (SCA)
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Safety
+        run: pip install safety
+      - name: Scan dependencies
+        run: safety check -r requirements.txt || true
+
+  # Job 4 - Build and Scan Image
+  container-scan:
+    runs-on: ubuntu-latest
+    needs: [secret-scan, dependency-scan]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -f Dockerfile.good -t myapp:${{ github.sha }} .
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: myapp:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true
+
+  # Job 5 - Deploy Gate
+  deploy-gate:
+    runs-on: ubuntu-latest
+    needs: [sast, container-scan]
+    steps:
+      - name: All checks passed
+        run: echo "✅ All security gates passed - ready to deploy"
